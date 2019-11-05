@@ -1,0 +1,121 @@
+package main
+
+import (
+	"fmt"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/aliyun/aliyun-oss-go-sdk/oss"
+	"github.com/sirupsen/logrus"
+	"github.com/urfave/cli"
+)
+
+const (
+	expireSeconds = 0 // no expired
+)
+
+var (
+	OSSVersion = "v0.0.1"
+	OSSDate    = time.Now()
+
+	flags = map[string]map[string]string{
+		"OSS_ENDPOINT":  {"ali oss endpoint.": "oss-cn-beijing.aliyuncs.com"},
+		"OSS_BUCKET":    {"ali oss bucket.": ""},
+		"OSS_KEY":       {"ali oss key.": ""},
+		"OSS_SECRET":    {"ali oss secret.": ""},
+		"OSS_FILE_PATH": {"file path which needs to be uploaded.": ""},
+	}
+)
+
+func init() {
+	cli.VersionPrinter = versionPrinter
+}
+
+func beforeFunc(c *cli.Context) error {
+	if os.Getuid() != 0 {
+		logrus.Fatalf("%s: need to be root", os.Args[0])
+	}
+	return nil
+}
+
+func versionPrinter(c *cli.Context) {
+	if _, err := fmt.Fprintf(c.App.Writer, OSSVersion); err != nil {
+		logrus.Error(err)
+	}
+}
+
+func main() {
+	app := cli.NewApp()
+	app.Author = "Jason-ZW"
+	app.Before = beforeFunc
+	app.EnableBashCompletion = true
+	app.Name = os.Args[0]
+	app.Usage = fmt.Sprintf("control and configure smartcart(%s)", OSSDate)
+	app.Version = OSSVersion
+	app.Flags = generateFlags()
+	app.Action = action
+	if err := app.Run(os.Args); err != nil {
+		logrus.Fatalln(err)
+	}
+}
+
+func setEnvironments(c *cli.Context) error {
+	for k := range flags {
+		if err := os.Setenv(k, c.String(strings.ToLower(k))); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func generateFlags() []cli.Flag {
+	fgs := make([]cli.Flag, 0)
+	for key, value := range flags {
+		for k, v := range value {
+			f := cli.StringFlag{
+				Name:   strings.ToLower(key),
+				EnvVar: key,
+				Usage:  k,
+				Value:  v,
+			}
+			fgs = append(fgs, f)
+		}
+	}
+	fgs = append(fgs, cli.HelpFlag)
+	return fgs
+}
+
+func action(c *cli.Context) error {
+	if err := setEnvironments(c); err != nil {
+		return err
+	}
+
+	client, err := oss.New(os.Getenv("OSS_ENDPOINT"), os.Getenv("OSS_KEY"), os.Getenv("OSS_SECRET"))
+	if err != nil {
+		logrus.Fatalln(err)
+	}
+
+	bucket, err := client.Bucket(os.Getenv("OSS_BUCKET"))
+	if err != nil {
+		logrus.Fatalln(err)
+	}
+
+	filePath := os.Getenv("OSS_FILE_PATH")
+	fileIndex := strings.LastIndex(filePath, "/")
+	fileName := filePath[fileIndex+1:]
+
+	signedURL, err := bucket.SignURL(fileName, oss.HTTPPut, expireSeconds)
+	if err != nil {
+		logrus.Fatalln(err)
+	}
+
+	err = bucket.PutObjectFromFileWithURL(signedURL, filePath)
+	if err != nil {
+		logrus.Fatalln(err)
+	}
+
+	logrus.Infof("success upload the file: %s", fileName)
+
+	return nil
+}
