@@ -32,9 +32,6 @@ func init() {
 }
 
 func beforeFunc(c *cli.Context) error {
-	if os.Getuid() != 0 {
-		logrus.Fatalf("%s: need to be root", os.Args[0])
-	}
 	return nil
 }
 
