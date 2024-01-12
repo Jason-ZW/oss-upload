@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -24,6 +25,7 @@ var (
 		"OSS_EXPIRE_SECONDS": {"aliyun oss public url expire seconds.": "0"},
 		"OSS_URL_PUBLIC":     {"after uploading, an accessible URL is generated.": "false"},
 		"FILE_PATH":          {"file path which needs to be uploaded.": ""},
+		"TARGET_PATH":        {"file path which in OSS": ""},
 	}
 )
 
@@ -32,9 +34,6 @@ func init() {
 }
 
 func beforeFunc(c *cli.Context) error {
-	if os.Getuid() != 0 {
-		logrus.Fatalf("%s: need to be root", os.Args[0])
-	}
 	return nil
 }
 
@@ -101,8 +100,11 @@ func action(c *cli.Context) error {
 	}
 
 	filePath := os.Getenv("FILE_PATH")
-	fileIndex := strings.LastIndex(filePath, "/")
-	fileName := filePath[fileIndex+1:]
+	targetPath := os.Getenv("TARGET_PATH")
+	fileName := filepath.Base(filePath)
+	if targetPath != "" {
+		fileName = targetPath + "/" + fileName
+	}
 
 	isPublic := os.Getenv("OSS_URL_PUBLIC")
 	if strings.EqualFold(isPublic, "true") {
@@ -113,6 +115,7 @@ func action(c *cli.Context) error {
 		}
 		err = bucket.PutObjectFromFileWithURL(signedURL, filePath)
 	} else {
+		fmt.Println("fileName:", fileName, "filePath:", filePath)
 		err = bucket.PutObjectFromFile(fileName, filePath)
 	}
 	if err != nil {
